@@ -5,12 +5,16 @@ data "aws_availability_zones" "available" {
 resource "aws_vpc" "eks_vpc" {
   count      = var.eks_vpc_id == null ? 1 : 0
   cidr_block = var.eks_subnet_cidr_prefix
+  tags = merge(var.tags, {
+    Name                                           = "${var.deployment_name}-vpc",
+    "kubernetes.io/cluster/${var.deployment_name}" = "shared",
+  })
 }
 
 locals {
   vpc_id = var.eks_vpc_id == null ? aws_vpc.eks_vpc[0].id : var.eks_vpc_id
   # Only use half of the CIDR block to have a reserve for the future.
-  eks_private_cidr_block = cidrsubnet(var.eks_subnet_cidr_prefix, 2, 0)
+  eks_private_cidr_block = var.eks_subnet_cidr_prefix
   public_cidr_block      = cidrsubnet(var.eks_subnet_cidr_prefix, 2, 3)
 }
 
@@ -20,25 +24,26 @@ resource "aws_subnet" "public_subnet" {
   cidr_block        = cidrsubnet(local.public_cidr_block, 10, count.index)
   vpc_id            = local.vpc_id
 
-  tags = {
-    Name = "${var.deployment_name}-public-subnet",
-  }
+  tags = merge(var.tags, {
+    Name                                           = "${var.deployment_name}-public-subnet",
+    "kubernetes.io/cluster/${var.deployment_name}" = "shared",
+  })
 }
 
 resource "aws_internet_gateway" "internet_gateway" {
   vpc_id = local.vpc_id
 
-  tags = {
+  tags = merge(var.tags, {
     Name = "${var.deployment_name}-internet-gateway",
-  }
+  })
 }
 
 resource "aws_route_table" "public_subnet_route_table" {
   vpc_id = local.vpc_id
 
-  tags = {
+  tags = merge(var.tags, {
     Name = "${var.deployment_name}-public-subnet-route-table",
-  }
+  })
 
   route {
     cidr_block = "0.0.0.0/0"
@@ -56,18 +61,18 @@ resource "aws_eip" "nat_elastic_ip" {
   count = var.availability_zone_count
   vpc   = true
 
-  tags = {
+  tags = merge(var.tags, {
     Name = "${var.deployment_name}-elastic-ip",
-  }
+  })
 }
 
 resource "aws_nat_gateway" "nat_gateway" {
   count         = var.availability_zone_count
   allocation_id = aws_eip.nat_elastic_ip[count.index].id
   subnet_id     = aws_subnet.public_subnet[count.index].id
-  tags = {
+  tags = merge(var.tags, {
     "Name" = "${var.deployment_name}-nat-gateway",
-  }
+  })
   depends_on = [aws_internet_gateway.internet_gateway]
 }
 
@@ -75,23 +80,22 @@ resource "aws_subnet" "eks_subnet" {
   count = var.availability_zone_count
 
   availability_zone = data.aws_availability_zones.available.names[count.index]
-  cidr_block        = cidrsubnet(local.eks_private_cidr_block, 3, count.index)
+  cidr_block        = cidrsubnet(local.eks_private_cidr_block, 2, count.index)
   vpc_id            = local.vpc_id
 
-  tags = {
-    "Name"                                     = "${var.deployment_name}-eks-subnet",
-    "tecton-accessible:${var.deployment_name}" = "true",
-    "kubernetes.io/role/internal-elb"          = "1",
-  }
+  tags = merge(var.tags, {
+    "Name"                                         = "${var.deployment_name}-private-subnet",
+    "kubernetes.io/cluster/${var.deployment_name}" = "shared",
+  })
 }
 
 resource "aws_route_table" "eks_subnet_route_table" {
   count  = var.availability_zone_count
   vpc_id = local.vpc_id
 
-  tags = {
-    "Name" = "${var.deployment_name}-eks-subnet-route-table",
-  }
+  tags = merge(var.tags, {
+    "Name" = "${var.deployment_name}-private-subnet-route-table",
+  })
 }
 
 resource "aws_vpc_endpoint" "dynamodb" {

@@ -26,3 +26,8 @@ variable "eks_subnet_cidr_prefix" {
     error_message = "Subnet must have enough space: the smallest acceptable prefix is /18."
   }
 }
+
+variable "tags" {
+  type        = map(string)
+  description = "Tags to apply to all resources in this module."
+}
